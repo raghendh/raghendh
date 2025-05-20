@@ -1,0 +1,392 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Remote Vibration Comm</title>
+    <meta name="theme-color" content="#4f46e5"/> <link rel="manifest" href="manifest.json">
+    <link rel="apple-touch-icon" href="icons/icon-192x192.png"> <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body { font-family: 'Inter', sans-serif; }
+        .active-feedback:active {
+            transform: scale(0.95);
+            opacity: 0.8;
+        }
+        .pattern-display {
+            min-height: 60px; 
+            word-break: break-all; 
+        }
+        /* Toggle Switch Styles */
+        .toggle-checkbox:checked + .toggle-label {
+            background-color: #22c55e; /* green-500 */
+        }
+        .toggle-checkbox:checked + .toggle-label::after {
+            transform: translateX(100%);
+        }
+        .toggle-label {
+            transition: background-color 0.2s ease-in-out;
+        }
+        .toggle-label::after {
+            transition: transform 0.2s ease-in-out;
+        }
+    </style>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700&display=swap" rel="stylesheet">
+</head>
+<body class="bg-slate-100 flex flex-col items-center justify-center min-h-screen p-4">
+
+    <div class="bg-white p-6 sm:p-8 rounded-xl shadow-2xl w-full max-w-md">
+        <div class="flex items-center justify-center mb-4 relative">
+            <h1 class="text-3xl font-bold text-slate-700">Remote Vibration</h1>
+        </div>
+
+        <div class="flex items-center justify-center mb-4 space-x-3">
+            <span id="senderModeLabel" class="text-sm font-medium text-slate-700">Sender Mode</span>
+            <div class="relative inline-block w-10 mr-2 align-middle select-none transition duration-200 ease-in">
+                <input type="checkbox" name="modeToggle" id="modeToggleCheckbox" class="toggle-checkbox absolute block w-6 h-6 rounded-full bg-white border-4 appearance-none cursor-pointer"/>
+                <label for="modeToggleCheckbox" class="toggle-label block overflow-hidden h-6 rounded-full bg-slate-300 cursor-pointer"></label>
+            </div>
+            <span id="receiverModeLabel" class="text-sm font-medium text-slate-400">Receiver Mode</span>
+        </div>
+
+        <div class="mb-6">
+            <label for="roomIdInput" class="block text-sm font-medium text-slate-600 mb-1">Room ID:</label>
+            <div class="flex space-x-2">
+                <input type="text" id="roomIdInput" class="flex-grow p-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-sky-500 focus:border-sky-500 transition-shadow" placeholder="Sender: Create Room ID">
+                <button id="connectRoomButton" class="bg-sky-500 hover:bg-sky-600 text-white font-semibold py-3 px-4 rounded-lg shadow-md hover:shadow-lg transition-all duration-150 ease-in-out active-feedback">
+                    Connect
+                </button>
+            </div>
+            <p id="connectionStatus" class="text-xs text-slate-500 mt-1 text-center"></p>
+        </div>
+
+
+        <div class="mb-6">
+            <p class="text-sm font-medium text-slate-600 mb-1">Vibration Pattern:</p>
+            <div id="patternDisplay" class="pattern-display p-3 bg-slate-50 border border-slate-200 rounded-lg text-slate-700 text-lg font-mono"></div>
+        </div>
+
+        <div id="patternCompositionUI" class="grid grid-cols-3 gap-3 mb-4">
+            <button data-pattern="-" class="pattern-btn bg-blue-500 hover:bg-blue-600 text-white font-medium py-3 rounded-lg shadow active-feedback">1 Long</button>
+            <button data-pattern="--" class="pattern-btn bg-blue-500 hover:bg-blue-600 text-white font-medium py-3 rounded-lg shadow active-feedback">2 Long</button>
+            <button data-pattern="---" class="pattern-btn bg-blue-500 hover:bg-blue-600 text-white font-medium py-3 rounded-lg shadow active-feedback">3 Long</button>
+            <button data-pattern="----" class="pattern-btn bg-blue-500 hover:bg-blue-600 text-white font-medium py-3 rounded-lg shadow active-feedback">4 Long</button>
+            <button data-pattern="-----" class="pattern-btn bg-blue-500 hover:bg-blue-600 text-white font-medium py-3 rounded-lg shadow active-feedback">5 Long</button>
+            <button data-pattern="." class="pattern-btn bg-teal-500 hover:bg-teal-600 text-white font-medium py-3 rounded-lg shadow active-feedback">Short (.)</button>
+            <button data-pattern=" " class="pattern-btn bg-slate-400 hover:bg-slate-500 text-white font-medium py-3 rounded-lg shadow active-feedback">Space</button>
+            <button id="clearButton" class="col-span-2 bg-amber-500 hover:bg-amber-600 text-white font-medium py-3 rounded-lg shadow active-feedback">Clear</button>
+        </div>
+
+        <div class="flex flex-col space-y-3">
+            <button id="sendButton" class="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 px-4 rounded-lg shadow-md hover:shadow-lg transition-all duration-150 ease-in-out active-feedback">
+                Send Vibration
+            </button>
+        </div>
+
+        <div id="infoMessage" class="mt-4 text-sm text-center text-slate-600"></div>
+
+    </div>
+
+    <script type="module">
+        // Firebase SDK imports
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+        import { getDatabase, ref, set, onValue, off } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js"; 
+        import { getAnalytics } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-analytics.js";
+
+        // --- START FIREBASE CONFIGURATION ---
+        const firebaseConfig = {
+            apiKey: "AIzaSyBn3NQy0RpQC3VQujFTxW1bQ1A5fGhiEbQ", // Replace with your actual API key
+            authDomain: "remote-vibration-618d4.firebaseapp.com",
+            databaseURL: "https://remote-vibration-618d4-default-rtdb.firebaseio.com",
+            projectId: "remote-vibration-618d4",
+            storageBucket: "remote-vibration-618d4.appspot.com",
+            messagingSenderId: "760606860762",
+            appId: "1:760606860762:web:8cf8a11dfc96492a9f0ce3",
+            measurementId: "G-X4W1P2B0XK"
+        };
+        // --- END FIREBASE CONFIGURATION ---
+
+        let app;
+        let db;
+        let analytics;
+        const clientId = crypto.randomUUID(); 
+        console.log("Client ID:", clientId);
+
+        try {
+            app = initializeApp(firebaseConfig);
+            db = getDatabase(app);
+            analytics = getAnalytics(app);
+            console.log("Firebase initialized successfully.");
+        } catch (error) {
+            console.error("Firebase initialization error:", error);
+            displayInfoMessage("Error initializing Firebase. Check console.", true);
+        }
+
+        const patternDisplay = document.getElementById('patternDisplay');
+        const patternButtons = document.querySelectorAll('.pattern-btn');
+        const clearButton = document.getElementById('clearButton');
+        const sendButton = document.getElementById('sendButton');
+        const roomIdInput = document.getElementById('roomIdInput');
+        const connectRoomButton = document.getElementById('connectRoomButton');
+        const connectionStatus = document.getElementById('connectionStatus');
+        const infoMessage = document.getElementById('infoMessage');
+        const modeToggleCheckbox = document.getElementById('modeToggleCheckbox');
+        const senderModeLabel = document.getElementById('senderModeLabel');
+        const receiverModeLabel = document.getElementById('receiverModeLabel');
+        const patternCompositionUI = document.getElementById('patternCompositionUI');
+
+        let currentPattern = ""; 
+        let lastReceivedPattern = ""; 
+        let currentRoomId = null;
+        let patternListener = null; 
+        let currentMode = 'sender'; 
+
+        const SHORT_VIBRATION_DURATION = 200; 
+        const LONG_VIBRATION_DURATION = 700;  
+        const INTER_SYMBOL_PAUSE = 150;       
+        const SPACE_PAUSE_DURATION = 400;     
+
+        function updateSenderDisplay() {
+            patternDisplay.textContent = currentPattern;
+        }
+
+        function displayInfoMessage(message, isError = false) {
+            infoMessage.textContent = message;
+            infoMessage.className = `mt-4 text-sm text-center ${isError ? 'text-red-500' : 'text-slate-600'}`;
+            if (message) {
+                setTimeout(() => {
+                    if (infoMessage.textContent === message) {
+                        displayInfoMessage("");
+                    }
+                }, isError ? 5000 : 3000);
+            }
+        }
+        
+        function updateUIModeVisuals() {
+            if (currentMode === 'sender') {
+                senderModeLabel.classList.remove('text-slate-400');
+                senderModeLabel.classList.add('text-slate-700', 'font-semibold');
+                receiverModeLabel.classList.add('text-slate-400');
+                receiverModeLabel.classList.remove('text-slate-700', 'font-semibold');
+                
+                patternCompositionUI.style.opacity = '1';
+                patternCompositionUI.style.pointerEvents = 'auto';
+                sendButton.disabled = false;
+                sendButton.classList.remove('opacity-50', 'cursor-not-allowed');
+                roomIdInput.placeholder = "Sender: Create Room ID";
+                updateSenderDisplay(); 
+            } else { 
+                receiverModeLabel.classList.remove('text-slate-400');
+                receiverModeLabel.classList.add('text-slate-700', 'font-semibold');
+                senderModeLabel.classList.add('text-slate-400');
+                senderModeLabel.classList.remove('text-slate-700', 'font-semibold');
+
+                patternCompositionUI.style.opacity = '0.5';
+                patternCompositionUI.style.pointerEvents = 'none';
+                sendButton.disabled = true;
+                sendButton.classList.add('opacity-50', 'cursor-not-allowed');
+                roomIdInput.placeholder = "Receiver: Enter Room ID";
+                patternDisplay.textContent = lastReceivedPattern || "Waiting for pattern..."; 
+            }
+        }
+
+        modeToggleCheckbox.addEventListener('change', () => {
+            const oldMode = currentMode;
+            currentMode = modeToggleCheckbox.checked ? 'receiver' : 'sender';
+            console.log("Mode changed from", oldMode, "to:", currentMode);
+            updateUIModeVisuals();
+
+            if (currentRoomId) { 
+                if (currentMode === 'receiver') {
+                    if (!patternListener) attachPatternListener(); 
+                } else { 
+                    detachPatternListener();
+                }
+            }
+        });
+
+        patternButtons.forEach(button => {
+            button.addEventListener('click', () => {
+                if (currentMode === 'sender') {
+                    currentPattern += button.dataset.pattern;
+                    updateSenderDisplay();
+                }
+            });
+        });
+
+        clearButton.addEventListener('click', () => {
+             if (currentMode === 'sender') {
+                currentPattern = "";
+                updateSenderDisplay();
+            }
+        });
+
+        function playVibrationPattern(pattern) {
+            if (!('vibrate' in navigator)) {
+                displayInfoMessage("Vibration API not supported.", true);
+                return;
+            }
+            if (!pattern) return;
+
+            const vibrationSequence = [];
+            for (let i = 0; i < pattern.length; i++) {
+                const char = pattern[i];
+                if (char === '.') {
+                    vibrationSequence.push(SHORT_VIBRATION_DURATION);
+                } else if (char === '-') {
+                    vibrationSequence.push(LONG_VIBRATION_DURATION);
+                } else if (char === ' ') {
+                    vibrationSequence.push(0); 
+                    vibrationSequence.push(SPACE_PAUSE_DURATION);
+                }
+                if (i < pattern.length - 1 && char !== ' ') {
+                    vibrationSequence.push(INTER_SYMBOL_PAUSE);
+                }
+            }
+            if (vibrationSequence.length > 0) {
+                try {
+                    navigator.vibrate(vibrationSequence);
+                    displayInfoMessage("Vibrating pattern...");
+                } catch (e) {
+                    console.error("Vibration error:", e);
+                    displayInfoMessage("Could not vibrate.", true);
+                }
+            }
+        }
+
+        function attachPatternListener() {
+            if (!currentRoomId || !db) return;
+            if (patternListener) { 
+                console.log("Pattern listener already attached for room:", currentRoomId);
+                return;
+            }
+
+            const patternDataRef = ref(db, `vibration_rooms/${currentRoomId}/latest_pattern`);
+            console.log(`Attempting to attach pattern listener to room: ${currentRoomId}`);
+
+            patternListener = onValue(patternDataRef, (snapshot) => {
+                const data = snapshot.val();
+                if (currentMode === 'receiver' && data && data.pattern) {
+                    lastReceivedPattern = data.pattern; 
+                    patternDisplay.textContent = lastReceivedPattern; 
+                    displayInfoMessage(`Received: ${lastReceivedPattern}`);
+                    console.log("Received pattern (Receiver Mode):", lastReceivedPattern, "at", new Date(data.timestamp).toLocaleTimeString());
+                    playVibrationPattern(lastReceivedPattern);
+                } else if (data === null && currentMode === 'receiver') {
+                    console.log(`No pattern data for room ${currentRoomId} or cleared.`);
+                    lastReceivedPattern = "";
+                    patternDisplay.textContent = "Waiting for pattern...";
+                }
+            }, (error) => {
+                console.error(`Firebase read error for pattern in room ${currentRoomId}:`, error);
+                displayInfoMessage(`Error listening for patterns in room ${currentRoomId}.`, true);
+                connectionStatus.textContent = `Error listening to ${currentRoomId}.`;
+                patternListener = null; 
+            });
+             if (connectionStatus.textContent.includes("Connected")) { 
+                connectionStatus.textContent = `Connected to Room: ${currentRoomId}. Listening for patterns...`;
+            }
+            console.log(`Pattern listener attached to room: ${currentRoomId}`);
+        }
+
+        function detachPatternListener() {
+            if (currentRoomId && patternListener && db) {
+                const patternDataRef = ref(db, `vibration_rooms/${currentRoomId}/latest_pattern`);
+                off(patternDataRef, 'value', patternListener);
+                console.log(`Pattern listener detached from room: ${currentRoomId}`);
+                patternListener = null;
+                 if (connectionStatus.textContent.includes("Listening for patterns...")) {
+                    connectionStatus.textContent = `Connected to Room: ${currentRoomId}. (Not listening for patterns)`;
+                }
+                if(currentMode === 'sender'){
+                    updateSenderDisplay();
+                }
+            }
+        }
+
+        connectRoomButton.addEventListener('click', () => {
+            const newRoomId = roomIdInput.value.trim();
+            if (!newRoomId) {
+                displayInfoMessage("Please enter a Room ID.", true);
+                return;
+            }
+            if (!db) {
+                displayInfoMessage("Firebase not connected.", true);
+                return;
+            }
+
+            if (currentRoomId && currentRoomId !== newRoomId) {
+                console.log(`Switching from room ${currentRoomId} to ${newRoomId}`);
+                detachPatternListener(); 
+                lastReceivedPattern = ""; 
+            }
+            
+            currentRoomId = newRoomId; 
+            connectionStatus.textContent = `Connecting to Room: ${currentRoomId}...`;
+            
+            if (currentMode === 'receiver') {
+                patternDisplay.textContent = "Waiting for pattern..."; 
+                attachPatternListener(); 
+            } else { 
+                connectionStatus.textContent = `Connected to Room: ${currentRoomId}. (Sender Mode)`;
+                displayInfoMessage(`Connected to room: ${currentRoomId} in Sender Mode.`);
+                updateSenderDisplay(); 
+            }
+        });
+
+        sendButton.addEventListener('click', () => {
+            if (currentMode !== 'sender') {
+                displayInfoMessage("Switch to Sender mode to send vibrations.", true);
+                return;
+            }
+            if (!currentRoomId) {
+                displayInfoMessage("Connect to a room first!", true);
+                return;
+            }
+            if (!currentPattern) {
+                displayInfoMessage("Compose a pattern to send!", true);
+                return;
+            }
+            if (!db) {
+                displayInfoMessage("Firebase not connected.", true);
+                return;
+            }
+
+            const patternRef = ref(db, `vibration_rooms/${currentRoomId}/latest_pattern`);
+            const dataToSend = {
+                pattern: currentPattern,
+                timestamp: new Date().toISOString(),
+                senderClientId: clientId 
+            };
+
+            set(patternRef, dataToSend)
+                .then(() => {
+                    displayInfoMessage(`Pattern sent to room: ${currentRoomId}`);
+                })
+                .catch((error) => {
+                    console.error("Firebase write error:", error);
+                    displayInfoMessage("Error sending pattern.", true);
+                });
+        });
+
+        // Initial UI setup
+        updateUIModeVisuals(); 
+        if (!('vibrate' in navigator)) {
+            displayInfoMessage("Vibration API not supported. Vibration features will not work.", true);
+        }
+
+        // PWA Service Worker Registration
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('/service-worker.js') // Ensure this path is correct
+                    .then(registration => {
+                        console.log('ServiceWorker registration successful with scope: ', registration.scope);
+                    })
+                    .catch(error => {
+                        console.log('ServiceWorker registration failed: ', error);
+                    });
+            });
+        }
+
+    </script>
+</body>
+</html>
